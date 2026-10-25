@@ -1,98 +1,54 @@
 --!strict
+local CollectionService = game:GetService("CollectionService")
 local player = game.Players.LocalPlayer
 local playerGui = player.PlayerGui
 
-local activeConnections: { [UIGridLayout]: { RBXScriptConnection } } = {}
+const TAG_NAME = "AutoGridLayout"
 
-local function clearConnections(gridLayout: UIGridLayout)
-	local connections = activeConnections[gridLayout]
-	if connections then
-		for _, connection in connections do
-			connection:Disconnect()
-		end
-		activeConnections[gridLayout] = nil
-	end
+local AutoGridLayout = {}
+
+local function getAttribute(uiGridLayout: UIGridLayout, name: string, default: number)
+	local value = uiGridLayout:GetAttribute(name)
+	return type(value) == "number" and value or default
 end
 
-local function getAttribute(gridLayout: UIGridLayout, name: string, default: number): number
-	local value = gridLayout:GetAttribute(name)
-	if type(value) == "number" then
-		return value
-	end
-
-	return default
-end
-
-local function updateGridLayout(gridLayout: UIGridLayout)
-	local container = gridLayout.Parent
-	if not container or not container:IsA("GuiObject") then
+local function setupGridLayout(uiGridLayout: UIGridLayout)
+	local container = uiGridLayout.Parent
+	if not container then
 		return
 	end
 
-	local aspectRation = getAttribute(gridLayout, "AspectRatio", 1)
-	local columns = getAttribute(gridLayout, "Columns", 7)
-	local paddingScale = getAttribute(gridLayout, "Padding", 0.01)
-	local rows = getAttribute(gridLayout, "Rows", 0)
+	local aspectRation = getAttribute(uiGridLayout, "AspectRation", 1)
+	local columns = getAttribute(uiGridLayout, "Columns", 7)
+	local padding = getAttribute(uiGridLayout, "Padding", 0.01)
 
-	local absoluteSize = container.AbsoluteSize
+	uiGridLayout.CellSize = UDim2.fromScale((1 - (columns + 1) * padding) / columns, 0)
 
-	local paddingOffset = paddingScale * absoluteSize.X
+	-- Add UIAspectRation to children
 
-	local totalPaddingX = paddingOffset * (columns - 1)
-	local cellWidth = math.max((absoluteSize.X - totalPaddingX) / columns, 0)
-
-	local cellHeight: number
-
-	if rows > 0 then
-		local totalPaddingY = paddingOffset * (rows - 1)
-		cellHeight = math.max((absoluteSize.Y - totalPaddingY) / rows, 0)
-	else
-		cellHeight = cellWidth / aspectRation
+	local function setupChild(child: Instance)
+		local uiAspectRatio = Instance.new("UIAspectRatioConstraint", child)
+		uiAspectRatio.AspectRatio = aspectRation
+		uiAspectRatio.AspectType = Enum.AspectType.ScaleWithParentSize
 	end
 
-	gridLayout.CellPadding = UDim2.fromOffset(paddingOffset, paddingOffset)
-	gridLayout.CellSize = UDim2.fromOffset(cellWidth, cellHeight)
-end
-
-local function setupGridLayout(gridLayout: UIGridLayout)
-	clearConnections(gridLayout)
-
-	local container = gridLayout.Parent
-	if not container or not container:IsA("GuiObject") then
-		return
+	for _, child in container:GetChildren() do
+		setupChild(child)
 	end
 
-	local function update()
-		updateGridLayout(gridLayout)
-	end
-
-	update()
-
-	local connections = {
-		container:GetPropertyChangedSignal("AbsoluteSize"):Connect(update),
-		gridLayout:GetAttributeChangedSignal("AspectRatio"):Connect(update),
-		gridLayout:GetAttributeChangedSignal("Columns"):Connect(update),
-		gridLayout:GetAttributeChangedSignal("Padding"):Connect(update),
-		gridLayout:GetAttributeChangedSignal("Rows"):Connect(update),
-	}
-
-	activeConnections[gridLayout] = connections
-
-	gridLayout.AncestryChanged:Connect(function(_, parent)
-		if not parent then
-			clearConnections(gridLayout)
-		end
+	container.ChildAdded:Connect(function(child)
+		setupChild(child)
 	end)
 end
 
-for _, descendant in playerGui:GetDescendants() do
-	if descendant:IsA("UIGridLayout") then
-		setupGridLayout(descendant)
+function AutoGridLayout:init()
+	for _, object in pairs(CollectionService:GetTagged(TAG_NAME)) do
+		setupGridLayout(object)
 	end
+
+	CollectionService:GetInstanceAddedSignal(TAG_NAME):Connect(function(object)
+		setupGridLayout(object)
+	end)
 end
 
-playerGui.DescendantAdded:Connect(function(descendant)
-	if descendant:IsA("UIGridLayout") then
-		setupGridLayout(descendant)
-	end
-end)
+return AutoGridLayout
